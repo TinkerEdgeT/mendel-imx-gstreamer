@@ -672,7 +672,38 @@ gst_buffer_copy_with_flags (const GstBuffer * buffer, GstBufferCopyFlags flags)
 static GstBuffer *
 _gst_buffer_copy (const GstBuffer * buffer)
 {
-  return gst_buffer_copy_with_flags (buffer, GST_BUFFER_COPY_ALL);
+  GstBufferPool *copy;
+
+  copy = gst_buffer_copy_with_flags (buffer, GST_BUFFER_COPY_ALL);
+
+  /* if copy contains memory from buffer it gets a meta ref to buffer
+     so buffer is never freed and returned to pools before copy */
+  if (copy) {
+    guint i, j, shared;
+
+    shared = 0;
+    for (i = 0; i < gst_buffer_n_memory (buffer); i++) {
+      for (j = 0; j < gst_buffer_n_memory (copy); j++) {
+        GstMemory *bmem, *cmem;
+
+        bmem = gst_buffer_peek_memory (buffer, i);
+        cmem = gst_buffer_peek_memory (copy, j);
+        if (bmem == cmem) {
+          GST_CAT_DEBUG (GST_CAT_BUFFER, "buf %p and %p share mem %p (%u, %u)",
+              buffer, copy, bmem, i, j);
+          shared++;
+        }
+      }
+    }
+
+    if (shared) {
+      GST_CAT_DEBUG (GST_CAT_BUFFER, "buf %p and %p share %u memories",
+          buffer, copy, shared);
+      gst_buffer_add_parent_buffer_meta (copy, buffer);
+    }
+  }
+
+  return copy;
 }
 
 /**
